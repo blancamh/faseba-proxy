@@ -32,13 +32,17 @@ const server = http.createServer((req, res) => {
   const forwardHeaders = { ...req.headers };
   forwardHeaders['host'] = ORIGIN_HOST;
 
+  console.log(`[proxy] -> ${req.method} ${path}`);
+
   const proxyReq = https.request({
     hostname: ORIGIN_HOST,
     port: 443,
     path,
     method: req.method,
-    headers: forwardHeaders
+    headers: forwardHeaders,
+    timeout: 15000
   }, proxyRes => {
+    console.log(`[proxy] <- ${proxyRes.statusCode} ${path}`);
     const headers = { ...proxyRes.headers };
     headers['x-robots-tag'] = 'noindex, nofollow';
 
@@ -66,8 +70,16 @@ const server = http.createServer((req, res) => {
     proxyRes.pipe(res);
   });
 
-  proxyReq.on('error', () => {
-    res.writeHead(502, { 'Content-Type': 'text/plain' });
+  proxyReq.on('timeout', () => {
+    console.log(`[proxy] timeout connecting to origin for ${path}`);
+    proxyReq.destroy(new Error('origin timeout'));
+  });
+
+  proxyReq.on('error', (err) => {
+    console.log(`[proxy] error: ${err.message}`);
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+    }
     res.end('Bad gateway');
   });
 
